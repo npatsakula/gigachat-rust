@@ -1,0 +1,26 @@
+[package]
+name = "gigachat-rust"
+version = "0.1.0-alpha.0"
+edition = "2024"
+description = "Unofficial Rust SDK for Gigachat API"
+license-file = "LICENSE"
+license = "MIT"
+authors = ["Patsakula Nikita <nikita.patsakula@gmail.com>"]
+keywords = ["gigachat", "api", "rust", "llm", "client"]
+
+[dependencies]
+anyhow = "1.0"
+async-trait = "0.1"
+derive_more = { version = "2.0", features = ["from"] }
+reqwest = { version = "0.12", features = ["json"] }
+reqwest-auth = "1.0"
+reqwest-middleware = { version = "0.4", features = ["json"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+time = { version = "0.3", features = ["serde"] }
+token-source = { version = "1.0", features = ["async-token-source"] }
+tokio = { version = "1.47", features = ["sync"] }
+uuid = { version = "1.18", features = ["v4"] }
+
+[dev-dependencies]
+tokio = { version = "1.47", features = ["full"] }
