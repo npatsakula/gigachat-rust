@@ -1,8 +1,6 @@
 use anyhow::Context;
 use eventsource_stream::Eventsource;
 use futures::{Stream, StreamExt, TryStreamExt};
-use reqwest::header::ACCEPT_ENCODING;
-use serde_json::Value;
 
 use crate::{
     client::GigaChatClient,
@@ -45,49 +43,38 @@ impl GenerationBuilder {
         self
     }
 
-    pub async fn execute(self) -> anyhow::Result<GenerationResponse> {
-        let request = GenerationRequest {
+    pub fn build(self) -> GenerationRequest {
+        GenerationRequest {
             model: self.model,
-            messages: self.messages.context("trying to execute empty query")?,
+            messages: self.messages.unwrap_or_default(),
             config: self.config,
-        };
+        }
+    }
 
-        let url = self.client.inner.base_url.join("chat/completions")?;
-        let result = self
-            .client
-            .inner
-            .client
-            .post(url)
-            .json(&request)
-            .send()
+    pub async fn execute(self) -> anyhow::Result<GenerationResponse> {
+        let client = self.client.clone();
+        let request = self.build();
+
+        let url = client.inner.base_url.join("chat/completions")?;
+        let response = client.inner.client.post(url).json(&request).send().await?;
+
+        let response = GigaChatClient::check_response(response)
             .await?
-            .json::<Value>()
+            .json()
             .await?;
 
-        Ok(serde_json::from_value(result)?)
+        Ok(response)
     }
 
     pub async fn execute_streaming(
         mut self,
     ) -> anyhow::Result<impl Stream<Item = anyhow::Result<GenerationResponseStream>>> {
+        let client = self.client.clone();
         self.config.stream = true;
-        let request = GenerationRequest {
-            model: self.model,
-            messages: self.messages.context("trying to execute empty query")?,
-            config: self.config,
-        };
+        let request = self.build();
 
-        let url = self.client.inner.base_url.join("chat/completions")?;
-        let response = self
-            .client
-            .inner
-            .client
-            .post(url)
-            .header(ACCEPT_ENCODING, "text/event-stream")
-            .json(&request)
-            .send()
-            .await?;
-
+        let url = client.inner.base_url.join("chat/completions")?;
+        let response = client.inner.client.post(url).json(&request).send().await?;
         let response = GigaChatClient::check_response(response).await?;
         Ok(response
             .bytes_stream()
