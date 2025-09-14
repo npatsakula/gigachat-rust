@@ -2,7 +2,7 @@
 
 [![Crates.io](https://img.shields.io/crates/v/gigachat-rust)](https://crates.io/crates/gigachat-rust)
 [![Documentation](https://docs.rs/gigachat-rust/badge.svg)](https://docs.rs/gigachat-rust)
-[![License](https://img.shields.io/crates/l/gigachat-rust)](https://github.com/nikitapatsakula/gigachat-rust/blob/main/LICENSE)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 Rust SDK для работы с GigaChat API от Сбера - доступ к русскоязычным LLM.
 
