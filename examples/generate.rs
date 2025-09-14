@@ -1,3 +1,4 @@
+use futures::{StreamExt, TryStreamExt};
 use gigachat_rust::{client::GigaChatClientBuilder, generation::structures::Message};
 use std::env;
 
@@ -8,7 +9,7 @@ async fn main() {
 
     let check = client
         .generate()
-        .messages(vec![
+        .with_messages(vec![
             Message::system("Переведи документацию на английский язык."),
             Message::user(include_str!("../data/short.txt")),
         ])
@@ -16,5 +17,25 @@ async fn main() {
         .await
         .unwrap();
 
-    eprintln!("{check:?}");
+    println!("{check:?}");
+
+    let check = client
+        .generate()
+        .with_messages(vec![
+            Message::system("Переведи документацию на английский язык."),
+            Message::user(include_str!("../data/short.txt")),
+        ])
+        .execute_streaming()
+        .await
+        .unwrap();
+
+    check
+        .enumerate()
+        .map(|(i, r)| r.map(|r| (i, r)))
+        .try_for_each(async |(i, response)| {
+            println!("Part {i}:\n{response:?}");
+            Ok(())
+        })
+        .await
+        .unwrap();
 }

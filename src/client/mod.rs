@@ -1,4 +1,4 @@
-use reqwest::{Certificate, ClientBuilder, Proxy, Url};
+use reqwest::{Certificate, ClientBuilder, Proxy, Response, Url};
 use reqwest_auth::AuthorizationHeaderMiddleware;
 use reqwest_middleware::ClientWithMiddleware;
 use std::sync::{Arc, LazyLock};
@@ -78,4 +78,19 @@ pub(crate) struct GigaChatClientInner {
 #[derive(Clone)]
 pub struct GigaChatClient {
     pub(crate) inner: Arc<GigaChatClientInner>,
+}
+
+impl GigaChatClient {
+    pub(crate) async fn check_response(response: Response) -> anyhow::Result<Response> {
+        let status = response.status();
+        if status.is_success() {
+            Ok(response)
+        } else {
+            let text = response.text().await?;
+            Err(anyhow::anyhow!(
+                "HTTP request failed with status {}; text: {text}",
+                status,
+            ))
+        }
+    }
 }

@@ -45,7 +45,7 @@ pub struct GenerationConfig {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_tokens: Option<usize>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub repeat_penalty: Option<f32>,
+    pub repetition_penalty: Option<f32>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -98,7 +98,37 @@ pub struct Usage {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GenerationResponse {
     pub choices: Vec<Choice>,
+    #[serde(with = "time::serde::timestamp::milliseconds")]
     pub created: OffsetDateTime,
     pub model: Model,
     pub usage: Usage,
+}
+
+impl GenerationResponse {
+    pub fn text(&self) -> String {
+        self.choices
+            .first()
+            .map(|choice| choice.message.content.clone())
+            .unwrap_or_default()
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MessageStreamPart {
+    pub content: String,
+    pub role: Option<Role>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ChoiceStreamPart {
+    pub delta: MessageStreamPart,
+    pub index: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GenerationResponseStream {
+    model: Model,
+    #[serde(with = "time::serde::timestamp::milliseconds")]
+    pub created: OffsetDateTime,
+    pub choices: Vec<ChoiceStreamPart>,
 }
