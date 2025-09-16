@@ -1,6 +1,7 @@
 use anyhow::Context;
 use eventsource_stream::Eventsource;
 use futures::{Stream, StreamExt, TryStreamExt};
+use tracing::Span;
 
 use crate::{
     client::GigaChatClient,
@@ -51,11 +52,14 @@ impl GenerationBuilder {
         }
     }
 
+    #[tracing::instrument(skip_all, fields(url))]
     pub async fn execute(self) -> anyhow::Result<GenerationResponse> {
         let client = self.client.clone();
         let request = self.build();
 
         let url = client.inner.base_url.join("chat/completions")?;
+        Span::current().record("url", url.as_str());
+        tracing::debug!("URL constructed successfully");
         let response = client.inner.client.post(url).json(&request).send().await?;
 
         let response = GigaChatClient::check_response(response)
@@ -66,6 +70,7 @@ impl GenerationBuilder {
         Ok(response)
     }
 
+    #[tracing::instrument(skip_all, fields(url))]
     pub async fn execute_streaming(
         mut self,
     ) -> anyhow::Result<impl Stream<Item = anyhow::Result<GenerationResponseStream>>> {
@@ -74,12 +79,18 @@ impl GenerationBuilder {
         let request = self.build();
 
         let url = client.inner.base_url.join("chat/completions")?;
+        Span::current().record("url", url.as_str());
+        tracing::debug!("URL constructed successfully");
         let response = client.inner.client.post(url).json(&request).send().await?;
         let response = GigaChatClient::check_response(response).await?;
+        tracing::debug!("streaming connection established");
         Ok(response
             .bytes_stream()
             .eventsource()
             .take_while(|event| {
+                // FIXME:
+                // This is obvious SSE misuse from the Sber team, this code shouldn't
+                // exists, but here we are.
                 std::future::ready(matches!(event, Ok(event) if event.data != "[DONE]"))
             })
             .map_err(|err| anyhow::anyhow!("error parsing event: {err}"))

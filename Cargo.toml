@@ -26,6 +26,7 @@ serde_json = "1.0"
 time = { version = "0.3", features = ["serde"] }
 token-source = { version = "1.0", features = ["async-token-source"] }
 tokio = { version = "1.47", features = ["sync"] }
+tracing = "0.1.41"
 uuid = { version = "1.18", features = ["v4"] }
 
 [dev-dependencies]

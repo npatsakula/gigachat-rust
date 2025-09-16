@@ -81,6 +81,9 @@ pub struct GigaChatClient {
 }
 
 impl GigaChatClient {
+    #[tracing::instrument(skip_all, fields(
+        response.status.code = response.status().as_u16()
+    ), err)]
     pub(crate) async fn check_response(response: Response) -> anyhow::Result<Response> {
         let status = response.status();
         if status.is_success() {

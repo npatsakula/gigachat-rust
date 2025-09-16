@@ -1,3 +1,5 @@
+use tracing::Span;
+
 use crate::{
     batch::structures::{BatchCheckResponse, BatchResponseResult},
     client::GigaChatClient,
@@ -25,9 +27,11 @@ impl BatchHandler {
         &self.id
     }
 
+    #[tracing::instrument(skip_all, fields(url))]
     async fn check_request(&self) -> anyhow::Result<BatchCheckResponse> {
         let mut url = self.client.inner.base_url.join("batches")?;
         url.query_pairs_mut().append_pair("batch_id", &self.id);
+        Span::current().record("url", url.as_str());
 
         let response = self.client.inner.client.post(url).send().await?;
         Ok(GigaChatClient::check_response(response)
@@ -36,6 +40,7 @@ impl BatchHandler {
             .await?)
     }
 
+    #[tracing::instrument(skip_all)]
     pub async fn check(&self) -> anyhow::Result<BatchCheckResult> {
         let check_response = self.check_request().await?;
         Ok(match check_response.status {
