@@ -1,9 +1,11 @@
+use snafu::ResultExt;
 use tracing::Span;
 
-use crate::{
-    batch::structures::{BatchCheckResponse, BatchResponseResult},
-    client::GigaChatClient,
+use super::{
+    error,
+    structures::{BatchCheckResponse, BatchResponseResult},
 };
+use crate::client::GigaChatClient;
 
 use super::structures::Status;
 
@@ -28,20 +30,21 @@ impl BatchHandler {
     }
 
     #[tracing::instrument(skip_all, fields(url))]
-    async fn check_request(&self) -> anyhow::Result<BatchCheckResponse> {
-        let mut url = self.client.inner.base_url.join("batches")?;
-        url.query_pairs_mut().append_pair("batch_id", &self.id);
+    async fn check_request(&self) -> Result<BatchCheckResponse, error::Error> {
+        let url = self
+            .client
+            .build_url("batches", [("batch_id", self.id.as_str())].as_slice())
+            .context(error::BuildUrlSnafu)?;
         Span::current().record("url", url.as_str());
 
-        let response = self.client.inner.client.post(url).send().await?;
-        Ok(GigaChatClient::check_response(response)
-            .await?
-            .json()
-            .await?)
+        self.client
+            .perform_request(|c| c.post(url), async |r| r.json().await)
+            .await
+            .context(error::BadRequestSnafu)
     }
 
     #[tracing::instrument(skip_all)]
-    pub async fn check(&self) -> anyhow::Result<BatchCheckResult> {
+    pub async fn check(&self) -> Result<BatchCheckResult, error::Error> {
         let check_response = self.check_request().await?;
         Ok(match check_response.status {
             Status::Created => BatchCheckResult::Pending,

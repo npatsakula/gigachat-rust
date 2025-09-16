@@ -1,13 +1,10 @@
+use snafu::ResultExt;
 use std::io::{BufWriter, Write};
-
 use tokio::task::spawn_blocking;
 use tracing::Span;
 
-use crate::{
-    batch::{handler::BatchHandler, structures::BatchCreateResponse},
-    client::GigaChatClient,
-    generation::structures::GenerationRequest,
-};
+use super::{error, handler::BatchHandler, structures::BatchCreateResponse};
+use crate::{client::GigaChatClient, generation::structures::GenerationRequest};
 
 pub struct BatchBuilder {
     pub(crate) client: GigaChatClient,
@@ -28,12 +25,15 @@ impl BatchBuilder {
     }
 
     /// Create JSONL representation of the batch.
-    fn serialize_batch_to_file(requests: Vec<GenerationRequest>) -> anyhow::Result<Vec<u8>> {
+    fn serialize_batch_to_file(requests: Vec<GenerationRequest>) -> Result<Vec<u8>, error::Error> {
         let mut result = Vec::with_capacity(std::mem::size_of_val(&requests));
         let mut writer = BufWriter::new(&mut result);
         for request in requests {
-            serde_json::to_writer(&mut writer, &request)?;
-            writer.write_all(b"\n")?;
+            serde_json::to_writer(&mut writer, &request)
+                .context(error::BatchSerializationFailedSnafu)?;
+            writer
+                .write_all(b"\n")
+                .expect("vector write should always finish correctly");
         }
         drop(writer);
         Ok(result)
@@ -44,32 +44,31 @@ impl BatchBuilder {
         batch.size = self.requests.len(),
         batch.bytes,
     ))]
-    pub async fn execute(self) -> anyhow::Result<BatchHandler> {
-        let mut url = self.client.inner.base_url.join("batches")?;
-        url.query_pairs_mut()
-            .append_pair("method", "chat_completions");
+    pub async fn execute(self) -> Result<BatchHandler, error::Error> {
+        let url = self
+            .client
+            .build_url("batches", [("method", "chat_completions")].as_slice())
+            .context(error::BuildUrlSnafu)?;
         Span::current().record("url", url.as_str());
 
         // [`Self::serialize_batch_to_file`] can block async runtime on large batches.
-        let batch_bytes =
-            spawn_blocking(move || Self::serialize_batch_to_file(self.requests)).await??;
+        let batch_bytes = spawn_blocking(move || Self::serialize_batch_to_file(self.requests))
+            .await
+            .expect("failed to join blocking thread")?;
         Span::current().record("batch.bytes", batch_bytes.len());
         tracing::debug!("batch evaluated");
-        let response = self
-            .client
-            .inner
-            .client
-            .post(url)
-            .body(batch_bytes)
-            .header("content-type", "application/octet-stream")
-            .send()
-            .await?;
 
-        let response = GigaChatClient::check_response(response)
-            .await?
-            .json::<BatchCreateResponse>()
-            .await?;
-
-        Ok(BatchHandler::new(self.client.clone(), response.id))
+        self.client
+            .perform_request(
+                |c| {
+                    c.post(url)
+                        .body(batch_bytes)
+                        .header("content-type", "application/octet-stream")
+                },
+                async |r| r.json::<BatchCreateResponse>().await,
+            )
+            .await
+            .context(error::BadRequestSnafu)
+            .map(|r| BatchHandler::new(self.client.clone(), r.id))
     }
 }

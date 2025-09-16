@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 pub mod builder;
+pub mod error;
 pub mod structures;
 
 #[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
