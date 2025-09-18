@@ -1,11 +1,16 @@
-use std::{error::Error, fmt::Debug, sync::Arc};
+use std::error::Error;
+use std::fmt::Debug;
+use std::sync::Arc;
 
 use reqwest::{Client, Url};
 use serde::{Deserialize, Serialize};
+use snafu::prelude::*;
 use time::OffsetDateTime;
 use token_source::{TokenSource, TokenSourceProvider};
 use tokio::sync::Mutex;
 use uuid::Uuid;
+
+use super::error;
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
@@ -45,7 +50,7 @@ impl SberTokenSource {
         url: Url,
         scope: TokenScope,
         token: String,
-    ) -> anyhow::Result<Self> {
+    ) -> Result<Self, error::ClientError> {
         let result = Self {
             token,
             client,
@@ -62,7 +67,7 @@ impl SberTokenSource {
         Ok(result)
     }
 
-    async fn generate_new_state(&self) -> anyhow::Result<CredentialsState> {
+    async fn generate_new_state(&self) -> Result<CredentialsState, error::ClientError> {
         #[derive(Serialize)]
         pub struct NewStateForm {
             scope: TokenScope,
@@ -75,17 +80,17 @@ impl SberTokenSource {
             .header("RqUID", Uuid::new_v4().to_string())
             .form(&NewStateForm { scope: self.scope })
             .send()
-            .await?;
+            .await
+            .context(error::TokenGenerationFailedSnafu)?;
 
-        if !response.status().is_success() {
-            let text = response.text().await.unwrap_or_default();
-            return Err(anyhow::anyhow!(
-                "failed to perform request, response: {}",
-                text
-            ));
-        }
+        let response = super::GigaChatClient::check_response(response)
+            .await
+            .map_err(|_| error::AuthenticationFailedSnafu.build())?;
 
-        let mut new_state: CredentialsState = response.json().await?;
+        let mut new_state: CredentialsState = response
+            .json()
+            .await
+            .context(error::TokenResponseParseFailedSnafu)?;
         new_state.access_token = format!("Bearer {}", new_state.access_token);
         Ok(new_state)
     }

@@ -1,7 +1,8 @@
 use crate::client::GigaChatClient;
-use anyhow::Result;
 use serde::{Deserialize, Serialize};
+use snafu::prelude::*;
 
+pub mod error;
 pub mod structures;
 use structures::{EmbeddingRequest, EmbeddingResponse, Input};
 
@@ -47,7 +48,7 @@ impl Embeddings {
         &self,
         input: I,
         model: Option<Model>,
-    ) -> Result<EmbeddingResponse> {
+    ) -> Result<EmbeddingResponse, error::Error> {
         let model = model.unwrap_or_default();
 
         let request = EmbeddingRequest {
@@ -55,36 +56,14 @@ impl Embeddings {
             input: input.into(),
         };
 
-        let url = self.client.inner.base_url.join("embeddings")?;
-
-        let response = self
+        let url = self
             .client
-            .inner
-            .client
-            .post(url)
-            .json(&request)
-            .send()
+            .build_url("embeddings", None)
+            .context(error::BuildUrlSnafu)?;
+
+        self.client
+            .perform_request(|c| c.post(url).json(&request), async |r| r.json().await)
             .await
-            .map_err(|e| anyhow::anyhow!("Failed to send embeddings request: {}", e))?;
-
-        if !response.status().is_success() {
-            let status = response.status();
-            let error_text = response
-                .text()
-                .await
-                .unwrap_or_else(|_| "Unknown error".to_string());
-            return Err(anyhow::anyhow!(
-                "Embeddings API error {}: {}",
-                status,
-                error_text
-            ));
-        }
-
-        let embedding_response: EmbeddingResponse = response
-            .json()
-            .await
-            .map_err(|e| anyhow::anyhow!("Failed to parse embeddings response: {}", e))?;
-
-        Ok(embedding_response)
+            .context(error::RequestFailedSnafu)
     }
 }

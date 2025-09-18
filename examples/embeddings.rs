@@ -1,11 +1,16 @@
-use std::env;
+use display_error_chain::DisplayErrorChain;
+use gigachat_rust::{client::GigaChatClientBuilder, embeddings::Embeddings, error::*};
+use snafu::ResultExt;
+use std::{env, process::ExitCode};
+use tracing::level_filters::LevelFilter;
+use tracing_subscriber::EnvFilter;
 
-use gigachat_rust::{client::GigaChatClientBuilder, embeddings::Embeddings};
-
-#[tokio::main]
-async fn main() {
-    let token = env::var("GIGACHAT_TOKEN").expect("GIGACHAT_TOKEN environment variable not set");
-    let client = GigaChatClientBuilder::new(token).build().await.unwrap();
+async fn do_main() -> Result<(), Error> {
+    let token = env::var("GIGACHAT_TOKEN").whatever_context("GIGACHAT_TOKEN must be set")?;
+    let client = GigaChatClientBuilder::new(token)
+        .build()
+        .await
+        .context(ClientSnafu)?;
 
     let embeddings = Embeddings::new(client);
 
@@ -13,9 +18,9 @@ async fn main() {
     let single_embedding = embeddings
         .create("This is a test string for embedding".to_string(), None)
         .await
-        .unwrap();
+        .context(EmbeddingsSnafu)?;
 
-    println!("Single embedding: {:?}", single_embedding);
+    tracing::info!(embedding = ?single_embedding, "single embedding created successfully");
 
     // Multiple strings embedding
     let multiple_embeddings = embeddings
@@ -28,7 +33,28 @@ async fn main() {
             None,
         )
         .await
-        .unwrap();
+        .context(EmbeddingsSnafu)?;
 
-    println!("Multiple embeddings: {:?}", multiple_embeddings);
+    tracing::info!(embeddings = ?multiple_embeddings, "multiple embeddings created successfully");
+
+    Ok(())
+}
+
+#[tokio::main]
+async fn main() -> ExitCode {
+    tracing_subscriber::fmt()
+        .with_env_filter(
+            EnvFilter::builder()
+                .with_default_directive(LevelFilter::INFO.into())
+                .from_env_lossy(),
+        )
+        .init();
+
+    if let Err(err) = do_main().await {
+        let error_chain = DisplayErrorChain::new(&err).to_string();
+        tracing::error!(error.chain = error_chain, "top level error");
+        ExitCode::FAILURE
+    } else {
+        ExitCode::SUCCESS
+    }
 }
