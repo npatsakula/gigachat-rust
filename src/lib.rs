@@ -6,3 +6,5 @@ pub mod embeddings;
 pub mod generation;
 
 pub mod serialization;
+
+pub mod error;

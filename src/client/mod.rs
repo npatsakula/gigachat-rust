@@ -1,10 +1,13 @@
-use reqwest::{Certificate, ClientBuilder, Proxy, Response, Url};
+use reqwest::{Certificate, ClientBuilder, Proxy, Response, StatusCode, Url};
 use reqwest_auth::AuthorizationHeaderMiddleware;
-use reqwest_middleware::ClientWithMiddleware;
+use reqwest_middleware::{ClientWithMiddleware, RequestBuilder};
+use snafu::prelude::*;
 use std::sync::{Arc, LazyLock};
 use token_source::TokenSourceProvider;
+use tracing::{Level, Span};
 
 pub mod credentials_provider;
+pub mod error;
 use credentials_provider::{SberTokenProvider, SberTokenSource, TokenScope};
 
 pub static DEFAULT_AUTH_URL: LazyLock<Url> = LazyLock::new(|| {
@@ -50,8 +53,9 @@ impl GigaChatClientBuilder {
     }
 
     #[rustfmt::skip]
-    pub async fn build(self) -> anyhow::Result<GigaChatClient> {
-        let client = self.http_client_builder.build()?;
+    pub async fn build(self) -> Result<GigaChatClient, error::ClientError> {
+        let client = self.http_client_builder.build()
+            .context(error::BuildHttpClientSnafu)?;
         let ts = SberTokenSource::new(client.clone(), self.auth_url, self.scope, self.token).await?;
         let tp = SberTokenProvider::new(ts);
 
@@ -77,20 +81,86 @@ pub(crate) struct GigaChatClientInner {
 
 #[derive(Clone)]
 pub struct GigaChatClient {
-    pub(crate) inner: Arc<GigaChatClientInner>,
+    inner: Arc<GigaChatClientInner>,
+}
+
+#[derive(Debug, Snafu)]
+#[snafu(display("bad response; status code {status_code}; description '{description}'"))]
+pub struct CheckResponseError {
+    status_code: StatusCode,
+    description: String,
+}
+
+#[derive(Debug, Snafu)]
+pub struct BuildUrlError {
+    source: url::ParseError,
+    base_url: Url,
+    path: String,
 }
 
 impl GigaChatClient {
-    pub(crate) async fn check_response(response: Response) -> anyhow::Result<Response> {
+    #[tracing::instrument(skip_all, fields(
+        url.base = self.inner.base_url.as_str(),
+        url.path = path,
+        url.queries,
+    ), err, ret(level = Level::DEBUG))]
+    pub(crate) fn build_url<'q, Q: Into<Option<&'q [(&'q str, &'q str)]>>>(
+        &self,
+        path: &str,
+        queries: Q,
+    ) -> Result<Url, BuildUrlError> {
+        let mut url = self
+            .inner
+            .base_url
+            .join(path)
+            .with_context(|_| BuildUrlSnafu {
+                base_url: self.inner.base_url.clone(),
+                path: path.to_string(),
+            })?;
+
+        if let Some(queries) = queries.into() {
+            for (key, value) in queries {
+                url.query_pairs_mut().append_pair(key, value);
+            }
+
+            Span::current().record("url.queries", format!("{queries:?}"));
+        }
+
+        Ok(url)
+    }
+
+    #[tracing::instrument(skip_all, err)]
+    pub(crate) async fn perform_request<
+        B: FnOnce(&ClientWithMiddleware) -> RequestBuilder,
+        D: AsyncFn(reqwest::Response) -> Result<T, reqwest::Error>,
+        T,
+    >(
+        &self,
+        builder: B,
+        deserializer: D,
+    ) -> Result<T, error::RequestError> {
+        let request = builder(&self.inner.client);
+        let response = request.send().await.context(error::SendRequestSnafu)?;
+        tracing::debug!("request result received");
+        let response = Self::check_response(response).await?;
+        tracing::debug!("request result checked");
+        deserializer(response)
+            .await
+            .context(error::ParseResponseSnafu)
+    }
+
+    #[tracing::instrument(skip_all, err)]
+    async fn check_response(response: Response) -> Result<Response, error::RequestError> {
         let status = response.status();
         if status.is_success() {
             Ok(response)
         } else {
-            let text = response.text().await?;
-            Err(anyhow::anyhow!(
-                "HTTP request failed with status {}; text: {text}",
-                status,
-            ))
+            let text = response.text().await.unwrap_or_default();
+            error::BadResponseSnafu {
+                status_code: status,
+                description: text,
+            }
+            .fail()
         }
     }
 }

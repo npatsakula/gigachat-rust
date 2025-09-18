@@ -1,11 +1,17 @@
-use gigachat_rust::{client::GigaChatClientBuilder, generation::structures::Message};
-use std::{env, time::Duration};
+use display_error_chain::DisplayErrorChain;
+use gigachat_rust::{client::GigaChatClientBuilder, error::*, generation::structures::Message};
+use snafu::ResultExt;
+use std::{env, process::ExitCode, time::Duration};
 use tokio::time::sleep;
+use tracing::level_filters::LevelFilter;
+use tracing_subscriber::EnvFilter;
 
-#[tokio::main]
-async fn main() {
-    let token = env::var("GIGACHAT_TOKEN").expect("GIGACHAT_TOKEN environment variable not set");
-    let client = GigaChatClientBuilder::new(token).build().await.unwrap();
+async fn do_main() -> Result<(), Error> {
+    let token = env::var("GIGACHAT_TOKEN").whatever_context("GIGACHAT_TOKEN must be set")?;
+    let client = GigaChatClientBuilder::new(token)
+        .build()
+        .await
+        .context(ClientSnafu)?;
 
     let handler = client
         .batch()
@@ -23,30 +29,55 @@ async fn main() {
         )
         .execute()
         .await
-        .unwrap();
+        .context(BatchSnafu)?;
 
-    println!("Batch job started with ID: {}", handler.id());
+    tracing::info!(batch.id = handler.id(), "batch job started");
 
     loop {
-        let status = handler.check().await.unwrap();
+        let status = handler.check().await.context(BatchSnafu)?;
         match status {
             gigachat_rust::batch::handler::BatchCheckResult::Pending => {
-                println!("Batch is pending...");
+                tracing::info!("batch is pending...");
             }
             gigachat_rust::batch::handler::BatchCheckResult::InProgress { ready, total } => {
-                println!("Batch in progress: {}/{} ready", ready, total);
+                tracing::info!(ready = ready, total = total, "batch in progress");
             }
             gigachat_rust::batch::handler::BatchCheckResult::Success { responses } => {
-                println!("Batch completed successfully!");
+                tracing::info!("batch completed successfully");
                 for (i, response_result) in responses.into_iter().enumerate() {
                     match response_result.res() {
-                        Ok(response) => println!("Response {}: {:?}", i, response),
-                        Err(e) => println!("Response {} failed with error: {:?}", i, e),
+                        Ok(response) => {
+                            tracing::info!(response.index = i, response = ?response, "response received")
+                        }
+                        Err(e) => {
+                            tracing::error!(response.index = i, error = ?e, "response failed")
+                        }
                     }
                 }
                 break;
             }
         }
         sleep(Duration::from_secs(5)).await;
+    }
+
+    Ok(())
+}
+
+#[tokio::main]
+async fn main() -> ExitCode {
+    tracing_subscriber::fmt()
+        .with_env_filter(
+            EnvFilter::builder()
+                .with_default_directive(LevelFilter::INFO.into())
+                .from_env_lossy(),
+        )
+        .init();
+
+    if let Err(err) = do_main().await {
+        let error_chain = DisplayErrorChain::new(&err).to_string();
+        tracing::error!(error.chain = error_chain, "top level error");
+        ExitCode::FAILURE
+    } else {
+        ExitCode::SUCCESS
     }
 }
