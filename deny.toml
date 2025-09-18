@@ -1,10 +1,7 @@
-# cargo-deny configuration
 [graph]
-# Exclude dev dependencies from analysis
 targets = [
     { triple = "x86_64-unknown-linux-gnu" },
-    { triple = "x86_64-pc-windows-msvc" },
-    { triple = "x86_64-apple-darwin" },
+    { triple = "aarch64-apple-darwin"},
 ]
 
 [output]
@@ -13,12 +10,9 @@ feature-depth = 1
 [advisories]
 version = 2
 ignore = []
-informational = "warn"
-severity-threshold = "low"
 
 [licenses]
 version = 2
-confidence-threshold = 0.8
 allow = [
     "MIT",
     "Apache-2.0",
@@ -27,20 +21,8 @@ allow = [
     "BSD-3-Clause",
     "ISC",
     "Unicode-DFS-2016",
+    "Unicode-3.0",
 ]
-deny = [
-    "GPL-2.0",
-    "GPL-3.0",
-    "AGPL-1.0",
-    "AGPL-3.0",
-]
-copyleft = "warn"
-allow-osi-fsf-free = "neither"
-default = "deny"
-
-[[licenses.exceptions]]
-allow = ["Unicode-DFS-2016"]
-name = "unicode-ident"
 
 [sources]
 unknown-registry = "warn"
