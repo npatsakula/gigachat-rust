@@ -1,15 +1,14 @@
-use anyhow::Context;
 use eventsource_stream::Eventsource;
 use futures::{Stream, StreamExt, TryStreamExt};
-use reqwest::header::ACCEPT_ENCODING;
-use serde_json::Value;
+use snafu::prelude::*;
+use std::future;
+use tracing::Span;
 
-use crate::{
-    client::GigaChatClient,
-    generation::structures::{
-        GenerationRequest, GenerationResponse, GenerationResponseStream, Message,
-    },
+use super::{
+    error,
+    structures::{GenerationRequest, GenerationResponse, GenerationResponseStream, Message},
 };
+use crate::client::GigaChatClient;
 
 pub struct GenerationBuilder {
     client: GigaChatClient,
@@ -20,6 +19,11 @@ pub struct GenerationBuilder {
 }
 
 impl GenerationBuilder {
+    pub fn with_model(mut self, model: super::Model) -> Self {
+        self.model = model;
+        self
+    }
+
     pub fn with_messages(mut self, messages: Vec<Message>) -> Self {
         self.messages = Some(messages);
         self
@@ -45,62 +49,65 @@ impl GenerationBuilder {
         self
     }
 
-    pub async fn execute(self) -> anyhow::Result<GenerationResponse> {
-        let request = GenerationRequest {
+    pub fn build(self) -> GenerationRequest {
+        GenerationRequest {
             model: self.model,
-            messages: self.messages.context("trying to execute empty query")?,
+            messages: self.messages.unwrap_or_default(),
             config: self.config,
-        };
-
-        let url = self.client.inner.base_url.join("chat/completions")?;
-        let result = self
-            .client
-            .inner
-            .client
-            .post(url)
-            .json(&request)
-            .send()
-            .await?
-            .json::<Value>()
-            .await?;
-
-        Ok(serde_json::from_value(result)?)
+        }
     }
 
+    #[tracing::instrument(skip_all, fields(url))]
+    pub async fn execute(self) -> Result<GenerationResponse, error::Error> {
+        let client = self.client.clone();
+        let request = self.build();
+
+        let url = client
+            .build_url("chat/completions", None)
+            .context(error::BuildUrlSnafu)?;
+        Span::current().record("url", url.as_str());
+        tracing::debug!("URL constructed successfully");
+
+        client
+            .perform_request(|c| c.post(url).json(&request), async |r| r.json().await)
+            .await
+            .context(error::BadRequestSnafu)
+    }
+
+    #[tracing::instrument(skip_all, fields(url))]
     pub async fn execute_streaming(
         mut self,
-    ) -> anyhow::Result<impl Stream<Item = anyhow::Result<GenerationResponseStream>>> {
+    ) -> Result<impl Stream<Item = Result<GenerationResponseStream, error::Error>>, error::Error>
+    {
+        let client = self.client.clone();
         self.config.stream = true;
-        let request = GenerationRequest {
-            model: self.model,
-            messages: self.messages.context("trying to execute empty query")?,
-            config: self.config,
-        };
+        let request = self.build();
 
-        let url = self.client.inner.base_url.join("chat/completions")?;
-        let response = self
-            .client
-            .inner
-            .client
-            .post(url)
-            .header(ACCEPT_ENCODING, "text/event-stream")
-            .json(&request)
-            .send()
-            .await?;
+        let url = client
+            .build_url("chat/completions", None)
+            .context(error::BuildUrlSnafu)?;
+        Span::current().record("url", url.as_str());
+        tracing::debug!("URL constructed successfully");
 
-        let response = GigaChatClient::check_response(response).await?;
-        Ok(response
+        let stream = client
+            .perform_request(|c| c.post(url).json(&request), async |r| Ok(r))
+            .await
+            .context(error::BadRequestSnafu)?;
+
+        Ok(stream
             .bytes_stream()
             .eventsource()
             .take_while(|event| {
-                std::future::ready(matches!(event, Ok(event) if event.data != "[DONE]"))
+                // FIXME:
+                // This is obvious SSE misuse from the Sber team, this code shouldn't
+                // exists, but here we are.
+                future::ready(matches!(event, Ok(event) if event.data != "[DONE]"))
             })
-            .map_err(|err| anyhow::anyhow!("error parsing event: {err}"))
+            .map(|r| r.context(error::EventParseFailedSnafu))
             .map_ok(|event| {
-                serde_json::from_str(&event.data).context(format!(
-                    "unable to deserialize content part: {}",
-                    event.data
-                ))
+                serde_json::from_str(&event.data).context(error::StreamDeserializationFailedSnafu {
+                    event_data: event.data,
+                })
             })
             .map(|r| r.flatten()))
     }
