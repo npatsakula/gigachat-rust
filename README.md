@@ -14,7 +14,7 @@ Rust SDK для работы с GigaChat API от Сбера - доступ к �
     - [x] Потоковая.
   - [x] Генерация эмбеддингов.
   - [x] Детекция LLM-сгенерированного текста.
-  - [ ] Пакетная обработка.
+  - [x] Пакетная обработка.
   - [ ] Обработка медиа.
   - [ ] Поддержка функций.
 - **Конфигурация клиента**:
@@ -22,8 +22,8 @@ Rust SDK для работы с GigaChat API от Сбера - доступ к �
   - [x] Возможности для конфигурации корпоративного прокси-сервера.
   - [x] OAuth авторизация с автоматической ротацией токенов.
 - **Средства интроспекции**:
-  - [ ] Поддержка сквозной трассировки при помощи `tracing`.
-  - [ ] Поддержка перехвата HTTP запросов.
+  - [x] Поддержка сквозной трассировки при помощи `tracing`.
+  - [x] Поддержка перехвата HTTP запросов.
 
 ## Getting started
 
@@ -83,17 +83,18 @@ let client = GigaChatClientBuilder::new(token)
 
 ```rust
 use anyhow::Result;
+use gigachat_rust::{client::GigaChatClientBuilder, generation::{Model, structures::Message}};
 
 async fn example() -> Result<()> {
     let token = std::env::var("GIGACHAT_TOKEN")?;
     let client = GigaChatClientBuilder::new(token).build().await?;
 
-    let response = match client
+    let response = client
         .generate()
-        .messages(vec![Message::user("Привет, мир!")])
+        .with_model(Model::GigaChat2Lite)
+        .with_messages(vec![Message::user("Привет, мир!")])
         .execute()
-        .await
-        .context("Failed to generate response")?;
+        .await?;
 
     println!("Успех: {response:?}");
 
