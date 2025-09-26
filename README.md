@@ -42,7 +42,7 @@ tokio = { version = "1", features = ["full"] }
 Для использования GigaChat API вам необходимо получить токен аутентификации от Сбера. Установите его как переменную окружения:
 
 ```bash
-export GIGACHAT_TOKEN="ваш-токен"
+export GIGACHAT_TOKEN="TOKEN"
 ```
 
 ## Примеры использования
@@ -53,6 +53,8 @@ export GIGACHAT_TOKEN="ваш-токен"
 |--------|----------|------|
 | [Генерация текста](./examples/generate.rs) | Демонстрирует генерацию текста с помощью GigaChat | [generate.rs](./examples/generate.rs) |
 | [Текстовые эмбеддинги](./examples/embeddings.rs) | Пример создания векторных представлений текста | [embeddings.rs](./examples/embeddings.rs) |
+| [Проверка текста](./examples/check.rs) | Пример проверки текста на авторство (ИИ или человек) | [check.rs](./examples/check.rs) |
+| [Работа с функциями](./examples/function.rs) | Демонстрирует использование функций в GigaChat | [function.rs](./examples/function.rs) |
 
 ## Конфигурация
 
@@ -92,11 +94,11 @@ async fn example() -> Result<()> {
     let response = client
         .generate()
         .with_model(Model::GigaChat2Lite)
-        .with_messages(vec![Message::user("Привет, мир!")])
+        .with_messages(vec![Message::user("Расскажи про Бесконечный Тупик Галковского.")])
         .execute()
         .await?;
 
-    println!("Успех: {response:?}");
+    println!("Success: {response:?}");
 
     Ok(())
 }
