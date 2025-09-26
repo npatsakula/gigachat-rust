@@ -1,6 +1,6 @@
 [package]
 name = "gigachat-rust"
-version = "0.1.0-alpha.1"
+version = "0.2.0-alpha.0"
 edition = "2024"
 description = "Unofficial Rust SDK for Gigachat API"
 license-file = "LICENSE"
