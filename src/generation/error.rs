@@ -7,6 +7,7 @@ pub enum Error {
     #[snafu(display("failed to parse generation response"))]
     ResponseParseFailed { source: reqwest::Error },
 
+    #[snafu(display("bad request"))]
     BadRequest {
         source: crate::client::error::RequestError,
     },

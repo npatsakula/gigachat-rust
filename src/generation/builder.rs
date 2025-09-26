@@ -8,7 +8,11 @@ use super::{
     error,
     structures::{GenerationRequest, GenerationResponse, GenerationResponseStream, Message},
 };
-use crate::client::GigaChatClient;
+use crate::{
+    client::GigaChatClient,
+    function::{FunctionName, UserFunction},
+    generation::structures::{Function, FunctionCall},
+};
 
 pub struct GenerationBuilder {
     client: GigaChatClient,
@@ -16,6 +20,8 @@ pub struct GenerationBuilder {
     model: super::Model,
     messages: Option<Vec<super::structures::Message>>,
     config: super::structures::GenerationConfig,
+    functions: Vec<Function>,
+    function_call: FunctionCall,
 }
 
 impl GenerationBuilder {
@@ -49,11 +55,28 @@ impl GenerationBuilder {
         self
     }
 
+    pub fn with_user_function(mut self, user_function: UserFunction) -> Self {
+        self.functions.push(Function::User(user_function));
+        self
+    }
+
+    pub fn with_builtin_function(mut self, function: FunctionName) -> Self {
+        self.functions.push(Function::BuiltIn(function));
+        self
+    }
+
+    pub fn with_function_call(mut self, function_call: FunctionCall) -> Self {
+        self.function_call = function_call;
+        self
+    }
+
     pub fn build(self) -> GenerationRequest {
         GenerationRequest {
             model: self.model,
             messages: self.messages.unwrap_or_default(),
             config: self.config,
+            function_call: self.function_call,
+            functions: self.functions,
         }
     }
 
@@ -69,7 +92,16 @@ impl GenerationBuilder {
         tracing::debug!("URL constructed successfully");
 
         client
-            .perform_request(|c| c.post(url).json(&request), async |r| r.json().await)
+            // .perform_request(|c| c.post(url).json(&request), async |r| r.json().await)
+            .perform_request(
+                |c| c.post(url).json(&request),
+                async |r| {
+                    let response = r.json::<serde_json::Value>().await?;
+                    println!("{response}");
+
+                    Ok(serde_json::from_value(response).unwrap())
+                },
+            )
             .await
             .context(error::BadRequestSnafu)
     }
@@ -120,6 +152,8 @@ impl GigaChatClient {
             model: super::Model::default(),
             messages: None,
             config: Default::default(),
+            function_call: FunctionCall::default(),
+            functions: Vec::new(),
         }
     }
 }
