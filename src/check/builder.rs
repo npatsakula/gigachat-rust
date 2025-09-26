@@ -4,6 +4,7 @@ use tracing::Span;
 use super::{Model, error::*, structures::*};
 use crate::client::GigaChatClient;
 
+/// Сборщик запроса проверки текста.
 pub struct CheckBuilder {
     pub(crate) client: GigaChatClient,
     pub(crate) model: Model,
@@ -11,16 +12,19 @@ pub struct CheckBuilder {
 }
 
 impl CheckBuilder {
+    /// Устанавливает текст для проверки.
     pub fn with_text(mut self, text: String) -> Self {
         self.text = Some(text);
         self
     }
 
+    /// Устанавливает модель для проверки.
     pub fn with_model(mut self, model: Model) -> Self {
         self.model = model;
         self
     }
 
+    /// Выполняет запрос проверки текста.
     #[tracing::instrument(skip_all, fields(url))]
     pub async fn execute(self) -> Result<CheckResponse, Error> {
         let reqwest = CheckRequest {

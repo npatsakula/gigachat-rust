@@ -16,10 +16,13 @@ use crate::{
 };
 pub use structures::{FunctionCheckResponse, FunctionExample, FunctionName, UserFunction};
 
+/// Генератор JSON-схем.
 pub trait SchemaGenerator {
+    /// Генерирует JSON-схему.
     fn generate() -> schemars::SchemaGenerator;
 }
 
+/// Генератор JSON-схем для Sber.
 pub struct SberSchema;
 
 impl SchemaGenerator for SberSchema {
@@ -31,6 +34,38 @@ impl SchemaGenerator for SberSchema {
     }
 }
 
+/// Сборщик функций.
+///
+/// ## Примечание
+///
+/// Все поля в структурах аргументов и вывода должны иметь doc-комментарии,
+/// иначе во время выполнения возникнет ошибка.
+///
+/// ## Пример
+///
+/// ```rust,no_run
+/// use gigachat_rust::function::{FunctionBuilder, FunctionExt, UserFunction};
+/// use serde::{Deserialize, Serialize};
+/// use schemars::JsonSchema;
+///
+/// #[derive(Serialize, Deserialize, JsonSchema)]
+/// struct Arguments {
+///    /// Первое число.
+///    a: i32,
+///    /// Второе число.
+///    b: i32,
+/// }
+///
+/// #[derive(Serialize, Deserialize, JsonSchema)]
+/// struct Output {
+///   /// Сумма двух чисел.
+///   sum: i32,
+/// }
+///
+/// let function: UserFunction = FunctionBuilder::<Arguments, Output>::new("add")
+///     .with_description("Adds two numbers")
+///     .build();
+/// ```
 pub struct FunctionBuilder<I, O, S = SberSchema> {
     name: String,
     description: Option<String>,
@@ -40,8 +75,11 @@ pub struct FunctionBuilder<I, O, S = SberSchema> {
     schema_generator: PhantomData<S>,
 }
 
+/// Расширение для функций.
 pub trait FunctionExt {
+    /// Тип аргументов.
     type Arguments;
+    /// Тип возвращаемого значения.
     type Output;
 }
 
@@ -51,6 +89,7 @@ impl<I, O, S> FunctionExt for FunctionBuilder<I, O, S> {
 }
 
 impl<I, O, S> FunctionBuilder<I, O, S> {
+    /// Создает новый экземпляр сборщика функций.
     pub fn new<N: Into<String>>(name: N) -> Self {
         FunctionBuilder {
             name: name.into(),
@@ -62,11 +101,13 @@ impl<I, O, S> FunctionBuilder<I, O, S> {
         }
     }
 
+    /// Устанавливает описание функции.
     pub fn with_description<D: Into<String>>(mut self, description: D) -> Self {
         self.description = Some(description.into());
         self
     }
 
+    /// Добавляет пример использования функции.
     pub fn with_example(mut self, example: FunctionExample<I>) -> Self {
         self.examples.push(example);
         self
@@ -74,6 +115,7 @@ impl<I, O, S> FunctionBuilder<I, O, S> {
 }
 
 impl<I: JsonSchema + Serialize, O: JsonSchema, S: SchemaGenerator> FunctionBuilder<I, O, S> {
+    /// Собирает функцию.
     pub fn build(self) -> UserFunction {
         let schema = S::generate();
         let parameters = schema.clone().into_root_schema_for::<I>().to_value();
@@ -93,6 +135,7 @@ impl<I: JsonSchema + Serialize, O: JsonSchema, S: SchemaGenerator> FunctionBuild
 }
 
 impl GigaChatClient {
+    /// Проверяет функцию на корректность.
     pub async fn check_function(
         &self,
         function: &UserFunction,

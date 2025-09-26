@@ -8,18 +8,36 @@ use tracing::{Level, Span};
 
 pub mod credentials_provider;
 pub mod error;
+
 use credentials_provider::{SberTokenProvider, SberTokenSource, TokenScope};
 
+/// URL для аутентификации по умолчанию.
 pub static DEFAULT_AUTH_URL: LazyLock<Url> = LazyLock::new(|| {
     Url::parse("https://ngw.devices.sberbank.ru:9443/api/v2/oauth")
         .expect("unreachable error: failed to parse default auth URL")
 });
 
+/// Базовый URL GigaChat по умолчанию.
 pub static DEFAULT_GIGACHAT_BASE_URL: LazyLock<Url> = LazyLock::new(|| {
     Url::parse("https://gigachat.devices.sberbank.ru/api/v1/")
         .expect("unreachable error: failed to parse default gigachat base URL")
 });
 
+/// Сборщик клиента GigaChat.
+///
+/// ## Пример
+///
+/// ```rust,no_run
+/// use gigachat_rust::client::GigaChatClientBuilder;
+///
+/// #[tokio::main]
+/// async fn main() {
+///     let client = GigaChatClientBuilder::new("YOUR_TOKEN".to_string())
+///         .build()
+///         .await
+///         .unwrap();
+/// }
+/// ```
 pub struct GigaChatClientBuilder {
     http_client_builder: ClientBuilder,
     scope: TokenScope,
@@ -29,6 +47,9 @@ pub struct GigaChatClientBuilder {
 }
 
 impl GigaChatClientBuilder {
+    /// Создает новый экземпляр сборщика клиента GigaChat.
+    ///
+    /// Принимает токен для аутентификации.
     pub fn new(token: String) -> Self {
         let root_certificate = Certificate::from_pem_bundle(include_bytes!(
             "../../certs/russian_trusted_root_ca_pem.crt"
@@ -46,12 +67,13 @@ impl GigaChatClientBuilder {
         }
     }
 
-    /// Set a proxy for the HTTP client
+    /// Устанавливает прокси для HTTP клиента.
     pub fn proxy(mut self, proxy: Proxy) -> Self {
         self.http_client_builder = self.http_client_builder.proxy(proxy);
         self
     }
 
+    /// Собирает клиент GigaChat.
     #[rustfmt::skip]
     pub async fn build(self) -> Result<GigaChatClient, error::ClientError> {
         let client = self.http_client_builder.build()
@@ -79,11 +101,13 @@ pub(crate) struct GigaChatClientInner {
     pub(crate) base_url: Url,
 }
 
+/// Клиент GigaChat.
 #[derive(Clone)]
 pub struct GigaChatClient {
     inner: Arc<GigaChatClientInner>,
 }
 
+/// Ошибка некорректного ответа.
 #[derive(Debug, Snafu)]
 #[snafu(display("bad response; status code {status_code}; description '{description}'"))]
 pub struct CheckResponseError {
@@ -91,6 +115,7 @@ pub struct CheckResponseError {
     description: String,
 }
 
+/// Ошибка сборки URL.
 #[derive(Debug, Snafu)]
 pub struct BuildUrlError {
     source: url::ParseError,

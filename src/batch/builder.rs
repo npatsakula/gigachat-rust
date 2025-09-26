@@ -6,25 +6,26 @@ use tracing::Span;
 use super::{error, handler::BatchHandler, structures::BatchCreateResponse};
 use crate::{client::GigaChatClient, generation::structures::GenerationRequest};
 
+/// Сборщик пакетных запросов.
 pub struct BatchBuilder {
     pub(crate) client: GigaChatClient,
     pub(crate) requests: Vec<GenerationRequest>,
 }
 
 impl BatchBuilder {
-    /// Add request to the batch.
+    /// Добавляет запрос в пакет.
     pub fn with_request(mut self, request: GenerationRequest) -> Self {
         self.requests.push(request);
         self
     }
 
-    /// Add requests to the batch.
+    /// Добавляет запросы в пакет.
     pub fn with_requests(mut self, requests: Vec<GenerationRequest>) -> Self {
         self.requests.extend_from_slice(&requests);
         self
     }
 
-    /// Create JSONL representation of the batch.
+    /// Создает JSONL представление пакета.
     fn serialize_batch_to_file(requests: Vec<GenerationRequest>) -> Result<Vec<u8>, error::Error> {
         let mut result = Vec::with_capacity(std::mem::size_of_val(&requests));
         let mut writer = BufWriter::new(&mut result);
@@ -39,6 +40,7 @@ impl BatchBuilder {
         Ok(result)
     }
 
+    /// Выполняет пакетный запрос.
     #[tracing::instrument(skip_all, fields(
         url,
         batch.size = self.requests.len(),
