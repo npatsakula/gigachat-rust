@@ -11,6 +11,7 @@ pub enum Error {
     #[snafu(display("failed to serialize batch to jsonl"))]
     BatchSerializationFailed { source: serde_json::Error },
 
+    #[snafu(display("bad request"))]
     BadRequest {
         source: crate::client::error::RequestError,
     },

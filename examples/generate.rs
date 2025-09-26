@@ -67,7 +67,7 @@ async fn main() -> ExitCode {
 
     if let Err(err) = do_main().await {
         let error_chain = DisplayErrorChain::new(&err).to_string();
-        tracing::error!(error.chain = error_chain, "top level error");
+        tracing::error!(error.debug = ?err, error.chain = error_chain, "top level error");
         ExitCode::FAILURE
     } else {
         ExitCode::SUCCESS

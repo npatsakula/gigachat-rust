@@ -29,6 +29,7 @@ pub enum RequestError {
     #[snafu(display("failed to send request"))]
     SendRequest { source: reqwest_middleware::Error },
 
+    #[snafu(display("bad response; status code {status_code}; description \"{description}\""))]
     BadResponse {
         status_code: u16,
         description: String,

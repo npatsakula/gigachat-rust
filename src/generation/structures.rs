@@ -1,35 +1,55 @@
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 
+use crate::function::{FunctionName, UserFunction};
+
 use super::Model;
 
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum Role {
-    System,
-    User,
-    Assistant,
-    Function,
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct FunctionCallResponse {
+    #[serde(flatten)]
+    pub name: FunctionName,
+    pub arguments: serde_json::Value,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct Message {
-    pub role: Role,
-    pub content: String,
+#[serde(tag = "role", rename_all = "lowercase")]
+pub enum Message {
+    System {
+        content: String,
+    },
+    User {
+        content: String,
+    },
+    Assistant {
+        content: String,
+        function_call: Option<FunctionCallResponse>,
+    },
+    Function {
+        #[serde(flatten)]
+        name: FunctionName,
+        #[serde(with = "crate::serialization::string_json")]
+        content: serde_json::Value,
+    },
 }
 
 impl Message {
-    pub fn system<S: Into<String>>(content: S) -> Self {
-        Self {
-            role: Role::System,
+    pub fn system(content: impl Into<String>) -> Self {
+        Self::System {
             content: content.into(),
         }
     }
 
-    pub fn user<S: Into<String>>(content: S) -> Self {
-        Self {
-            role: Role::User,
+    pub fn user(content: impl Into<String>) -> Self {
+        Self::User {
             content: content.into(),
+        }
+    }
+
+    pub fn function<C: Serialize>(name: FunctionName, content: C) -> Self {
+        Self::Function {
+            name,
+            content: serde_json::to_value(content).unwrap(),
         }
     }
 }
@@ -48,20 +68,41 @@ pub struct GenerationConfig {
     pub repetition_penalty: Option<f32>,
 }
 
+#[derive(Debug, Default, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum FunctionCall {
+    #[default]
+    None,
+    Auto,
+    #[serde(untagged)]
+    Manual(FunctionName),
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum Function {
+    User(UserFunction),
+    BuiltIn(FunctionName),
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct GenerationRequest {
     pub model: Model,
     pub messages: Vec<Message>,
+    pub function_call: FunctionCall,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub functions: Vec<Function>,
     #[serde(flatten)]
     pub config: GenerationConfig,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
+#[serde(rename_all = "snake_case")]
 pub enum FinishReason {
     Stop,
     Length,
     ContentFilter,
+    FunctionCall,
     Blacklist,
     Error,
 }
@@ -98,7 +139,7 @@ pub struct Usage {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GenerationResponse {
     pub choices: Vec<Choice>,
-    #[serde(with = "time::serde::timestamp::milliseconds")]
+    #[serde(with = "time::serde::timestamp")]
     pub created: OffsetDateTime,
     pub model: Model,
     pub usage: Usage,
@@ -108,15 +149,21 @@ impl GenerationResponse {
     pub fn text(&self) -> String {
         self.choices
             .first()
-            .map(|choice| choice.message.content.clone())
+            .and_then(|choice| match &choice.message {
+                Message::System { content }
+                | Message::User { content }
+                | Message::Assistant { content, .. } => Some(content.clone()),
+                Message::Function { .. } => None,
+            })
             .unwrap_or_default()
     }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct MessageStreamPart {
-    pub content: String,
-    pub role: Option<Role>,
+#[serde(untagged)]
+pub enum MessageStreamPart {
+    Header(Message),
+    Delta { content: String },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -128,7 +175,7 @@ pub struct ChoiceStreamPart {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GenerationResponseStream {
     model: Model,
-    #[serde(with = "time::serde::timestamp::milliseconds")]
+    #[serde(with = "time::serde::timestamp")]
     pub created: OffsetDateTime,
     pub choices: Vec<ChoiceStreamPart>,
 }
